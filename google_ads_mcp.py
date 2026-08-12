@@ -86,6 +86,31 @@ def _date_range(period: str):
     return yesterday.replace(day=1).strftime("%Y-%m-%d"), yesterday.strftime("%Y-%m-%d")
 
 
+def _iso(value: str, field: str) -> str:
+    """Valida uma data YYYY-MM-DD vinda do usuário antes de entrar na GAQL."""
+    try:
+        return date.fromisoformat(str(value).strip()).strftime("%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"{field} inválido: '{value}'. Use o formato YYYY-MM-DD.")
+
+
+def _range_from_args(arguments: dict):
+    """Datas customizadas têm prioridade; sem elas, cai no period nomeado."""
+    start = arguments.get("start_date")
+    end   = arguments.get("end_date")
+
+    if start or end:
+        if not (start and end):
+            raise ValueError("Informe start_date E end_date juntos (ou use period).")
+        date_from = _iso(start, "start_date")
+        date_to   = _iso(end, "end_date")
+        if date_from > date_to:
+            raise ValueError(f"start_date ({date_from}) é posterior a end_date ({date_to}).")
+        return date_from, date_to
+
+    return _date_range(arguments.get("period", "this_month"))
+
+
 def _resolve(raw: str) -> str:
     key = raw.strip().lower()
     return CUSTOMER_IDS.get(key, raw.replace("-", "").strip())
@@ -100,24 +125,28 @@ async def list_tools():
     return [
         Tool(
             name="get_campaign_performance",
-            description="Retorna performance por campanha de uma conta Google Ads. Aceita nome do cliente (oimu/kukiê/infanti/vj/undertop/787/monnari/cora/serinah) ou customer_id numérico.",
+            description="Retorna performance por campanha de uma conta Google Ads. Aceita nome do cliente (oimu/kukiê/infanti/vj/undertop/787/monnari/cora/serinah) ou customer_id numérico. Use period para atalhos ou start_date+end_date para qualquer intervalo.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "customer": {"type": "string", "description": "Nome do cliente ou customer_id"},
-                    "period":   {"type": "string", "enum": ["this_month", "last_7_days", "last_30_days", "last_month"], "default": "this_month"},
+                    "customer":   {"type": "string", "description": "Nome do cliente ou customer_id"},
+                    "period":     {"type": "string", "enum": ["this_month", "last_7_days", "last_30_days", "last_month"], "default": "this_month"},
+                    "start_date": {"type": "string", "description": "Data inicial YYYY-MM-DD. Sobrepõe o period. Exige end_date."},
+                    "end_date":   {"type": "string", "description": "Data final YYYY-MM-DD. Sobrepõe o period. Exige start_date."},
                 },
                 "required": ["customer"],
             },
         ),
         Tool(
             name="get_account_summary",
-            description="Retorna resumo consolidado (gasto, conversões, ROAS) de uma conta Google Ads. Aceita nome do cliente ou customer_id.",
+            description="Retorna resumo consolidado (gasto, conversões, ROAS) de uma conta Google Ads. Aceita nome do cliente ou customer_id. Use period para atalhos ou start_date+end_date para qualquer intervalo.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "customer": {"type": "string", "description": "Nome do cliente ou customer_id"},
-                    "period":   {"type": "string", "enum": ["this_month", "last_7_days", "last_30_days", "last_month"], "default": "this_month"},
+                    "customer":   {"type": "string", "description": "Nome do cliente ou customer_id"},
+                    "period":     {"type": "string", "enum": ["this_month", "last_7_days", "last_30_days", "last_month"], "default": "this_month"},
+                    "start_date": {"type": "string", "description": "Data inicial YYYY-MM-DD. Sobrepõe o period. Exige end_date."},
+                    "end_date":   {"type": "string", "description": "Data final YYYY-MM-DD. Sobrepõe o period. Exige start_date."},
                 },
                 "required": ["customer"],
             },
@@ -137,8 +166,7 @@ async def call_tool(name: str, arguments: dict):
         return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
 
     customer_id = _resolve(arguments.get("customer", ""))
-    period      = arguments.get("period", "this_month")
-    date_from, date_to = _date_range(period)
+    date_from, date_to = _range_from_args(arguments)
 
     if name == "get_campaign_performance":
         gaql = f"""
