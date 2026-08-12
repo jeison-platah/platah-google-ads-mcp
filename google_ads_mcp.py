@@ -34,6 +34,7 @@ CUSTOMER_IDS = {
     "787":      "2276201464",
     "monnari":  "4241884415",
     "cora":     "4303131547",
+    "serinah":  "9882984023",
     "mcc":      "1698381003",
 }
 
@@ -99,7 +100,7 @@ async def list_tools():
     return [
         Tool(
             name="get_campaign_performance",
-            description="Retorna performance por campanha de uma conta Google Ads. Aceita nome do cliente (oimu/kukiê/infanti/vj/undertop/787/monnari/cora) ou customer_id numérico.",
+            description="Retorna performance por campanha de uma conta Google Ads. Aceita nome do cliente (oimu/kukiê/infanti/vj/undertop/787/monnari/cora/serinah) ou customer_id numérico.",
             inputSchema={
                 "type": "object",
                 "properties": {
