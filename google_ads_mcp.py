@@ -253,9 +253,10 @@ sse = SseServerTransport("/messages/")
 
 
 def _chave_ok(request) -> bool:
-    """Senha do conector: com MCP_SECRET definido, só entra quem chama /sse?key=<senha>."""
+    """Senha do conector: com MCP_SECRET definido, só entra quem chama /k/<senha>/sse (ou /sse?key=<senha>)."""
     segredo = os.environ.get("MCP_SECRET", "").strip()
-    return not segredo or hmac.compare_digest(request.query_params.get("key", ""), segredo)
+    chave = request.path_params.get("key") or request.query_params.get("key", "")
+    return not segredo or hmac.compare_digest(chave, segredo)
 
 
 async def handle_sse(request):
@@ -268,6 +269,7 @@ async def handle_sse(request):
 app = Starlette(
     routes=[
         Route("/sse",    endpoint=handle_sse),
+        Route("/k/{key}/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
         Route("/health", endpoint=lambda r: Response("ok")),
     ]
