@@ -3,6 +3,7 @@ Platah — Google Ads MCP Server (HTTP/SSE)
 Deploy no Railway como serviço web separado.
 """
 
+import hmac
 import os
 import json
 import requests
@@ -251,7 +252,15 @@ async def call_tool(name: str, arguments: dict):
 sse = SseServerTransport("/messages/")
 
 
+def _chave_ok(request) -> bool:
+    """Senha do conector: com MCP_SECRET definido, só entra quem chama /sse?key=<senha>."""
+    segredo = os.environ.get("MCP_SECRET", "").strip()
+    return not segredo or hmac.compare_digest(request.query_params.get("key", ""), segredo)
+
+
 async def handle_sse(request):
+    if not _chave_ok(request):
+        return Response("não autorizado", status_code=401)
     async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
 
