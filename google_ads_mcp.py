@@ -272,7 +272,7 @@ from contextlib import asynccontextmanager  # noqa: E402
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager  # noqa: E402
 from starlette.requests import Request  # noqa: E402
 
-_http = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
+_mcp_http = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
 
 
 class _HttpComSenha:
@@ -280,12 +280,12 @@ class _HttpComSenha:
         if not _chave_ok(Request(scope, receive)):
             await Response("não autorizado", status_code=401)(scope, receive, send)
             return
-        await _http.handle_request(scope, receive, send)
+        await _mcp_http.handle_request(scope, receive, send)
 
 
 @asynccontextmanager
 async def _vida(app):
-    async with _http.run():
+    async with _mcp_http.run():
         yield
 
 
