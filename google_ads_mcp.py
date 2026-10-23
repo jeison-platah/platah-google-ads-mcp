@@ -266,13 +266,39 @@ async def handle_sse(request):
         await server.run(streams[0], streams[1], server.create_initialization_options())
 
 
+
+# ─── Conexão HTTP ("streamable"), que é o que o claude.ai usa nos conectores novos ───
+from contextlib import asynccontextmanager  # noqa: E402
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager  # noqa: E402
+from starlette.requests import Request  # noqa: E402
+
+_http = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
+
+
+class _HttpComSenha:
+    async def __call__(self, scope, receive, send):
+        if not _chave_ok(Request(scope, receive)):
+            await Response("não autorizado", status_code=401)(scope, receive, send)
+            return
+        await _http.handle_request(scope, receive, send)
+
+
+@asynccontextmanager
+async def _vida(app):
+    async with _http.run():
+        yield
+
+
 app = Starlette(
     routes=[
         Route("/sse",    endpoint=handle_sse),
+        Route("/k/{key}/sse", endpoint=_HttpComSenha(), methods=["POST", "DELETE"]),
+        Route("/k/{key}/mcp", endpoint=_HttpComSenha(), methods=["GET", "POST", "DELETE"]),
         Route("/k/{key}/sse", endpoint=handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
         Route("/health", endpoint=lambda r: Response("ok")),
-    ]
+    ],
+    lifespan=_vida,
 )
 
 if __name__ == "__main__":
