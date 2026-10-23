@@ -289,8 +289,83 @@ async def _vida(app):
         yield
 
 
+
+# ─── Login (OAuth) automático para o claude.ai ───────────────────────────────
+# Ao "Vincular", o claude.ai sempre faz o fluxo OAuth (descoberta → registro → autorização → token).
+# A senha de verdade é a do endereço (/k/<senha>/...), então o login aprova sozinho — mas só
+# devolve o código para o próprio claude.ai (redirect_uri em claude.ai/claude.com).
+import secrets as _sec  # noqa: E402
+from urllib.parse import urlencode, urlparse  # noqa: E402
+from starlette.responses import JSONResponse as _JSON, RedirectResponse as _Redir  # noqa: E402
+
+_REDIRECT_OK = ("claude.ai", "claude.com")
+
+
+def _origem(request) -> str:
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    return f"{proto}://{request.headers.get('host', request.url.netloc)}"
+
+
+async def _oauth_recurso(request):
+    o = _origem(request)
+    caminho = request.url.path.replace("/.well-known/oauth-protected-resource", "", 1) or "/"
+    return _JSON({"resource": o + caminho, "authorization_servers": [o]})
+
+
+async def _oauth_servidor(request):
+    o = _origem(request)
+    return _JSON({
+        "issuer": o,
+        "authorization_endpoint": o + "/authorize",
+        "token_endpoint": o + "/token",
+        "registration_endpoint": o + "/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"],
+    })
+
+
+async def _oauth_registro(request):
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    return _JSON({**corpo, "client_id": "platah-" + _sec.token_hex(8),
+                  "token_endpoint_auth_method": "none",
+                  "grant_types": ["authorization_code", "refresh_token"],
+                  "response_types": ["code"]}, status_code=201)
+
+
+async def _oauth_autorizar(request):
+    q = request.query_params
+    destino = q.get("redirect_uri", "")
+    host = urlparse(destino).hostname or ""
+    if not any(host == h or host.endswith("." + h) for h in _REDIRECT_OK):
+        return Response("redirect_uri não permitido", status_code=400)
+    params = {"code": _sec.token_urlsafe(24)}
+    if q.get("state"):
+        params["state"] = q["state"]
+    return _Redir(destino + ("&" if "?" in destino else "?") + urlencode(params), status_code=302)
+
+
+async def _oauth_token(request):
+    return _JSON({"access_token": _sec.token_urlsafe(32), "token_type": "Bearer",
+                  "expires_in": 31536000, "refresh_token": _sec.token_urlsafe(32)})
+
+
+_ROTAS_OAUTH = [
+    Route("/.well-known/oauth-protected-resource", endpoint=_oauth_recurso),
+    Route("/.well-known/oauth-protected-resource/{resto:path}", endpoint=_oauth_recurso),
+    Route("/.well-known/oauth-authorization-server", endpoint=_oauth_servidor),
+    Route("/.well-known/oauth-authorization-server/{resto:path}", endpoint=_oauth_servidor),
+    Route("/register", endpoint=_oauth_registro, methods=["POST"]),
+    Route("/authorize", endpoint=_oauth_autorizar),
+    Route("/token", endpoint=_oauth_token, methods=["POST"]),
+]
+
 app = Starlette(
-    routes=[
+    routes=_ROTAS_OAUTH + [
         Route("/sse",    endpoint=handle_sse),
         Route("/k/{key}/sse", endpoint=_HttpComSenha(), methods=["POST", "DELETE"]),
         Route("/k/{key}/mcp", endpoint=_HttpComSenha(), methods=["GET", "POST", "DELETE"]),
